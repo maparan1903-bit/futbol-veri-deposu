@@ -1,0 +1,76 @@
+name: football-data aynası
+
+# football-data.co.uk Türkiye'den erişime kapalı (Spor Toto 24/05/2021). Bu iş GitHub'ın sunucusunda
+# (Türkiye dışı) çalışır, kamuya açık CSV dosyalarını indirip bu depoya işler. Football Intelligence
+# programı dosyaları raw.githubusercontent.com üzerinden okur.
+#
+# - Biten maçlar (sonuç, istatistik, açılış/kapanış oranı): her lig için sezon dosyası
+# - Yaklaşan maçlar (güncel oranlar): fixtures.csv — 4 saatte bir
+
+on:
+  schedule:
+    - cron: '17 */4 * * *'
+  workflow_dispatch:
+    inputs:
+      sezonlar:
+        description: 'Boşlukla ayrılmış sezon kodları (ör. "2425 2526"). Boşsa güncel sezon.'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  ayna:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: CSV'leri indir
+        env:
+          SEZON_GIRDI: ${{ github.event.inputs.sezonlar }}
+        run: |
+          set -euo pipefail
+          LIGLER="T1 E0 E1 SP1 D1 I1 F1 N1 P1 B1 G1 SC0"
+
+          if [ -n "$SEZON_GIRDI" ]; then
+            SEZONLAR="$SEZON_GIRDI"
+          else
+            Y=$(date -u +%Y); M=$(date -u +%m)
+            if [ "$M" -lt 07 ]; then Y=$((Y-1)); fi
+            SEZONLAR="$(printf '%02d%02d' $((Y%100)) $(((Y+1)%100)))"
+          fi
+
+          for S in $SEZONLAR; do
+            mkdir -p "data/fd/$S"
+            for L in $LIGLER; do
+              URL="https://www.football-data.co.uk/mmz4281/$S/$L.csv"
+              if curl -sfL --max-time 60 -o "/tmp/$L.csv" "$URL" && head -1 "/tmp/$L.csv" | grep -q "HomeTeam"; then
+                mv "/tmp/$L.csv" "data/fd/$S/$L.csv"
+                echo "OK   $S/$L ($(wc -l < "data/fd/$S/$L.csv") satır)"
+              else
+                echo "ATLA $S/$L"
+              fi
+            done
+          done
+
+          if curl -sfL --max-time 60 -o /tmp/fixtures.csv "https://www.football-data.co.uk/fixtures.csv" \
+             && head -1 /tmp/fixtures.csv | grep -q "HomeTeam"; then
+            mv /tmp/fixtures.csv data/fd/fixtures.csv
+            echo "OK   fixtures.csv ($(wc -l < data/fd/fixtures.csv) satır)"
+          else
+            echo "ATLA fixtures.csv"
+          fi
+
+      - name: Değişiklikleri işle
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/fd
+          if git diff --cached --quiet; then
+            echo "Değişiklik yok"
+          else
+            git commit -m "veri: football-data güncellendi ($(date -u +'%F %H:%M'))"
+            git push
+          fi
