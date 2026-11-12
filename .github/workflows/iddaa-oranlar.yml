@@ -1,0 +1,52 @@
+name: iddaa oran kaydı
+
+# iddaa.com bülten oranlarını bilgisayar kapalıyken de kaydeder (İddaa Plus kapanış oranı karnesi için).
+# Kaynak, programın zaten okuduğu açık bülten adresidir (salt okuma; bahis yok, giriş yok, kişisel veri yok).
+# Yalnızca takip edilen ligler, 72 saat içindeki maçlar ve değişen oranlar yazılır: data/iddaa/<gün>/<saat>.csv.gz
+# Program bilgisayar açılınca bu dosyaları okuyup kendi veritabanına ekler (fi.sources.iddaa_mirror).
+# Kopyası: E:\projeler\iddaa-plus\scripts\github\ (oradaki sürüm esastır).
+#
+# Saatler UTC: 05:07–21:37 arası yarım saatte bir = Türkiye saatiyle 08:07–00:37.
+
+on:
+  schedule:
+    - cron: '7,37 5-21 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iddaa-oranlar
+  cancel-in-progress: false
+
+jobs:
+  kayit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Bülteni oku, değişen oranları yaz
+        run: python3 scripts/iddaa_snapshot.py --root data/iddaa
+
+      - name: Değişiklikleri işle
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A data/iddaa
+          if git diff --cached --quiet; then
+            echo "Değişiklik yok"
+            exit 0
+          fi
+          git commit -q -m "veri: iddaa oranları ($(date -u +'%F %H:%M'))"
+          for i in 1 2 3; do
+            if git push -q; then exit 0; fi
+            sleep $((i * 5))
+            git pull -q --rebase
+          done
+          echo "Gönderilemedi" >&2
+          exit 1
