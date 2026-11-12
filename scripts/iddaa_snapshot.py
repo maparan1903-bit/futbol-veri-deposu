@@ -41,7 +41,7 @@ Key = tuple[str, str, str, str]  # event id, subtype, line, option name
 
 def fetch() -> bytes:
     req = urllib.request.Request(FEED_URL, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:  # noqa: S310 - fixed https address
+    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:  # fixed https address
         return bytes(resp.read())
 
 
